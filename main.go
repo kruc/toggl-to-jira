@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/andygrunwald/go-jira"
-	"github.com/dougEfresh/gtoggl"
+	"github.com/kruc/gtoggl"
 	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -127,7 +127,7 @@ func main() {
 
 		clientConfigPath := fmt.Sprintf("client.%v", togglData.client)
 
-		if !viper.IsSet(fmt.Sprintf("%v", clientConfigPath)) {
+		if !viper.IsSet(clientConfigPath) {
 			generateClientConfigTemplate(clientConfigPath)
 			continue
 		}
@@ -172,7 +172,7 @@ func main() {
 			log.Info(fmt.Sprintf("Jira workload added"))
 			timeEntry.Tags = removeTag(timeEntry.Tags, jiraMigrationFail)
 			timeEntry.Tags = append(timeEntry.Tags, jiraMigrationSuccess)
-			log.Info(fmt.Sprintf("Add %v tag", jiraMigrationFail))
+			log.Info(fmt.Sprintf("Add %v tag", jiraMigrationSuccess))
 		}
 		te, err := tec.Update(&timeEntry)
 
