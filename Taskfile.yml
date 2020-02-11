@@ -1,0 +1,20 @@
+version: '2'
+
+includes:
+  vault: /Users/jacekciwis/Projects/devops/USEFUL_STUFF/vault
+tasks:
+  run:
+    desc: Run code
+    cmds:
+      - go run ./
+    silent: true
+  build:
+    desc: Build code
+    cmds:
+      - go build -o toggl-to-jira
+    silent: true
+  install:
+    desc: Install code
+    cmds:
+      - go build -o $GOPATH/bin/toggl-to-jira
+    silent: true

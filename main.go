@@ -37,6 +37,7 @@ var (
 	jiraMigrationSuccess string
 	logFile              *os.File
 	jiraMigrationFail    = "jira-migration-failed"
+	stachurskyMode       int
 )
 
 func init() {
@@ -45,6 +46,7 @@ func init() {
 	flag.StringVarP(&logFormat, "format", "f", "text", "Log format (text|json)")
 	flag.StringVarP(&logOutput, "output", "o", "stdout", "Log filename ")
 	flag.StringVarP(&jiraMigrationSuccess, "logged-tag", "l", "logged", "Toggl logged tag")
+	flag.IntVarP(&stachurskyMode, "tryb-niepokorny", "t", 30, "Rounding up the value of logged time up")
 	flag.Parse()
 	// Prepare config
 	os.MkdirAll(configPath, 0755)
@@ -208,26 +210,6 @@ func parseIssueID(value string) string {
 
 func getTimeDiff(start, stop time.Time) int {
 	return int(stop.Sub(start).Seconds())
-}
-
-func generateClientConfigTemplate(configPath string) {
-	fmt.Printf("Generating config template for %v...\n", configPath)
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_username"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_password"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_client_user"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_host"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "config_check"), "(Remove it after fill client config)")
-	err := viper.WriteConfig()
-
-	if err != nil {
-		log.WithFields(log.Fields{
-			"configPath": configPath,
-		}).Error(err)
-		return
-	}
-	log.WithFields(log.Fields{
-		"configPath": configPath,
-	}).Info("Client config template created!\n")
 }
 
 func find(a []string, x string) bool {
