@@ -1,7 +1,7 @@
 version: '2'
 
 vars:
-  VERSION: 0.1.0
+  VERSION: 0.2.0
   GIT_COMMIT:
     sh: git log -n 1 --format=%h
   GIT_AUTHOR:

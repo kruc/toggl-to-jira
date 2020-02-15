@@ -82,11 +82,11 @@ func init() {
 	log.SetLevel(log.InfoLevel)
 }
 func main() {
+	defer logFile.Close()
 	if version {
 		displayVersion()
 		return
 	}
-	defer logFile.Close()
 	if !checkTogglToken() {
 		log.Error("Please provide valid toggl_token visit => https://www.toggl.com/app/profile")
 		return
@@ -107,7 +107,7 @@ func main() {
 	}
 
 	for _, timeEntry := range timeEntries {
-		if find(timeEntry.Tags, jiraMigrationSuccess) {
+		if find(timeEntry.Tags, jiraMigrationSuccess) && !debugMode {
 			continue
 		}
 
@@ -211,7 +211,13 @@ func dosko(timeSpentSeconds int) int {
 		panic(err)
 	}
 
-	roundedValue := d.Round(time.Duration(stachurskyMode) * time.Minute)
+	stachurskyFactor := time.Duration(stachurskyMode) * time.Minute
+	roundedValue := d.Round(stachurskyFactor)
+
+	if int(roundedValue.Seconds()) == 0 {
+		roundedValue = stachurskyFactor
+	}
+
 	if debugMode {
 		fmt.Printf("%s - toggl value\n", d.String())
 		fmt.Printf("%s - stachursky mode (%vm) \n", roundedValue.String(), stachurskyMode)
