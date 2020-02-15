@@ -38,6 +38,13 @@ var (
 	logFile              *os.File
 	jiraMigrationFail    = "jira-migration-failed"
 	stachurskyMode       int
+	debugMode            bool
+	version              bool
+
+	BuildVersion string
+	BuildDate    string
+	GitCommit    string
+	GitAuthor    string
 )
 
 func init() {
@@ -46,7 +53,9 @@ func init() {
 	flag.StringVarP(&logFormat, "format", "f", "text", "Log format (text|json)")
 	flag.StringVarP(&logOutput, "output", "o", "stdout", "Log filename ")
 	flag.StringVarP(&jiraMigrationSuccess, "logged-tag", "l", "logged", "Toggl logged tag")
-	flag.IntVarP(&stachurskyMode, "tryb-niepokorny", "t", 30, "Rounding up the value of logged time up")
+	flag.IntVarP(&stachurskyMode, "tryb-niepokorny", "t", 1, "Rounding up the value of logged time up (minutes)")
+	flag.BoolVar(&debugMode, "debug", false, "Debug mode - display workload but not update jiras")
+	flag.BoolVarP(&version, "version", "v", false, "Display version")
 	flag.Parse()
 	// Prepare config
 	os.MkdirAll(configPath, 0755)
@@ -73,6 +82,10 @@ func init() {
 	log.SetLevel(log.InfoLevel)
 }
 func main() {
+	if version {
+		displayVersion()
+		return
+	}
 	defer logFile.Close()
 	if !checkTogglToken() {
 		log.Error("Please provide valid toggl_token visit => https://www.toggl.com/app/profile")
@@ -119,12 +132,14 @@ func main() {
 			continue
 		}
 
+		timeSpentSeconds := dosko(getTimeDiff(timeEntry.Start, timeEntry.Stop))
+
 		togglData := togglData{
 			client:           s.ToLower(client.Name),
 			project:          s.ToLower(project.Name),
 			issueID:          parseIssueID(timeEntry.Description),
 			started:          adjustTogglDate(timeEntry.Start),
-			timeSpentSeconds: getTimeDiff(timeEntry.Start, timeEntry.Stop),
+			timeSpentSeconds: timeSpentSeconds,
 		}
 
 		clientConfigPath := fmt.Sprintf("client.%v", togglData.client)
@@ -139,52 +154,70 @@ func main() {
 			continue
 		}
 
-		clientConfig := clientConfig{
-			jiraUsername:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_username")),
-			jiraPassword:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_password")),
-			jiraClientUser: viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_client_user")),
-			jiraHost:       viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_host")),
+		if debugMode == false {
+			clientConfig := clientConfig{
+				jiraUsername:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_username")),
+				jiraPassword:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_password")),
+				jiraClientUser: viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_client_user")),
+				jiraHost:       viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_host")),
+			}
+
+			// JIRA PART
+			tp := jira.BasicAuthTransport{
+				Username: clientConfig.jiraUsername,
+				Password: clientConfig.jiraPassword,
+			}
+
+			jiraClient, _ := jira.NewClient(tp.Client(), clientConfig.jiraHost)
+
+			tt := jira.Time(togglData.started)
+			worklogRecord := jira.WorklogRecord{
+				Comment:          "Toggl migration", // TODO: comments
+				TimeSpentSeconds: togglData.timeSpentSeconds,
+				Started:          &tt,
+			}
+
+			jwr, jr, err := jiraClient.Issue.AddWorklogRecord(togglData.issueID, &worklogRecord)
+
+			if err != nil {
+				log.WithFields(log.Fields{
+					"worklogRecord": jwr,
+					"response":      jr,
+				}).Error(err)
+				timeEntry.Tags = append(timeEntry.Tags, jiraMigrationFail)
+				log.Info(fmt.Sprintf("Add %v tag", jiraMigrationFail))
+			} else {
+				log.Info(fmt.Sprintf("Jira workload added"))
+				timeEntry.Tags = removeTag(timeEntry.Tags, jiraMigrationFail)
+				timeEntry.Tags = append(timeEntry.Tags, jiraMigrationSuccess)
+				log.Info(fmt.Sprintf("Add %v tag", jiraMigrationSuccess))
+			}
+			te, err := tec.Update(&timeEntry)
+
+			if err != nil {
+				log.WithFields(log.Fields{
+					"timeEntry": te,
+				}).Error(err)
+			}
+			log.Info(fmt.Sprintf("Finish processing %v: %v", timeEntry.Id, timeEntry.Description))
 		}
-
-		// JIRA PART
-		tp := jira.BasicAuthTransport{
-			Username: clientConfig.jiraUsername,
-			Password: clientConfig.jiraPassword,
-		}
-
-		jiraClient, _ := jira.NewClient(tp.Client(), clientConfig.jiraHost)
-
-		tt := jira.Time(togglData.started)
-		worklogRecord := jira.WorklogRecord{
-			Comment:          "Toggl migration", // TODO: comments
-			TimeSpentSeconds: togglData.timeSpentSeconds,
-			Started:          &tt,
-		}
-
-		jwr, jr, err := jiraClient.Issue.AddWorklogRecord(togglData.issueID, &worklogRecord)
-
-		if err != nil {
-			log.WithFields(log.Fields{
-				"worklogRecord": jwr,
-				"response":      jr,
-			}).Error(err)
-			timeEntry.Tags = append(timeEntry.Tags, jiraMigrationFail)
-			log.Info(fmt.Sprintf("Add %v tag", jiraMigrationFail))
-		} else {
-			log.Info(fmt.Sprintf("Jira workload added"))
-			timeEntry.Tags = removeTag(timeEntry.Tags, jiraMigrationFail)
-			timeEntry.Tags = append(timeEntry.Tags, jiraMigrationSuccess)
-			log.Info(fmt.Sprintf("Add %v tag", jiraMigrationSuccess))
-		}
-		te, err := tec.Update(&timeEntry)
-
-		if err != nil {
-			log.WithFields(log.Fields{
-				"timeEntry": te,
-			}).Error(err)
-		}
-		log.Info(fmt.Sprintf("Finish processing %v: %v", timeEntry.Id, timeEntry.Description))
 	}
+}
+
+func dosko(timeSpentSeconds int) int {
+
+	d, err := time.ParseDuration(fmt.Sprintf("%vs", timeSpentSeconds))
+	if err != nil {
+		panic(err)
+	}
+
+	roundedValue := d.Round(time.Duration(stachurskyMode) * time.Minute)
+	if debugMode {
+		fmt.Printf("%s - toggl value\n", d.String())
+		fmt.Printf("%s - stachursky mode (%vm) \n", roundedValue.String(), stachurskyMode)
+	}
+
+	return int(roundedValue.Seconds())
 }
 
 func removeTag(tagsList []string, tagToRemove string) []string {
@@ -245,4 +278,8 @@ func checkTogglToken() bool {
 	}).Info("Client config template created!\n")
 
 	return false
+}
+
+func displayVersion() {
+	fmt.Printf("BuildVersion: %s\tBuildDate: %s\tGitCommit: %s\tGitAuthor: %s\n", BuildVersion, BuildDate, GitCommit, GitAuthor)
 }

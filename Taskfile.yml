@@ -1,20 +1,34 @@
 version: '2'
 
-includes:
-  vault: /Users/jacekciwis/Projects/devops/USEFUL_STUFF/vault
+vars:
+  VERSION: 0.1.0
+  GIT_COMMIT:
+    sh: git log -n 1 --format=%h
+  GIT_AUTHOR:
+    sh: git log -n 1 --format=%an
+
 tasks:
   run:
     desc: Run code
     cmds:
       - go run ./
     silent: true
+
+  compile:
+    cmds:
+      - go build -ldflags="-X 'main.BuildVersion={{.VERSION}}' -X 'main.GitCommit={{.GIT_COMMIT}}' -X 'main.GitAuthor={{.GIT_AUTHOR}}' -X 'main.BuildDate={{now | date "2006-01-02 15:04:05"}}'" -o {{.BUILD_PATH}}
+
   build:
     desc: Build code
     cmds:
-      - go build -o toggl-to-jira
-    silent: true
+      - task: compile
+        vars:
+          BUILD_PATH: toggl-to-jira
+
   install:
     desc: Install code
     cmds:
-      - go build -o $GOPATH/bin/toggl-to-jira
-    silent: true
+      - task: compile
+        vars:
+          BUILD_PATH:
+            sh: echo $GOPATH/bin/toggl-to-jira
