@@ -17,6 +17,7 @@ type togglData struct {
 	client           string
 	project          string
 	issueID          string
+	issueComment     string
 	started          time.Time
 	timeSpentSeconds int
 }
@@ -138,6 +139,7 @@ func main() {
 			client:           s.ToLower(client.Name),
 			project:          s.ToLower(project.Name),
 			issueID:          parseIssueID(timeEntry.Description),
+			issueComment:     parseIssueComment(timeEntry.Description),
 			started:          adjustTogglDate(timeEntry.Start),
 			timeSpentSeconds: timeSpentSeconds,
 		}
@@ -154,28 +156,31 @@ func main() {
 			continue
 		}
 
+		clientConfig := clientConfig{
+			jiraUsername:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_username")),
+			jiraPassword:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_password")),
+			jiraClientUser: viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_client_user")),
+			jiraHost:       viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_host")),
+		}
+
+		// JIRA PART
+		tp := jira.BasicAuthTransport{
+			Username: clientConfig.jiraUsername,
+			Password: clientConfig.jiraPassword,
+		}
+
+		jiraClient, _ := jira.NewClient(tp.Client(), clientConfig.jiraHost)
+
+		tt := jira.Time(togglData.started)
+		worklogRecord := jira.WorklogRecord{
+			Comment:          togglData.issueComment,
+			TimeSpentSeconds: togglData.timeSpentSeconds,
+			Started:          &tt,
+		}
+		if debugMode {
+			fmt.Printf("%+v\n", worklogRecord)
+		}
 		if debugMode == false {
-			clientConfig := clientConfig{
-				jiraUsername:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_username")),
-				jiraPassword:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_password")),
-				jiraClientUser: viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_client_user")),
-				jiraHost:       viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_host")),
-			}
-
-			// JIRA PART
-			tp := jira.BasicAuthTransport{
-				Username: clientConfig.jiraUsername,
-				Password: clientConfig.jiraPassword,
-			}
-
-			jiraClient, _ := jira.NewClient(tp.Client(), clientConfig.jiraHost)
-
-			tt := jira.Time(togglData.started)
-			worklogRecord := jira.WorklogRecord{
-				Comment:          "Toggl migration", // TODO: comments
-				TimeSpentSeconds: togglData.timeSpentSeconds,
-				Started:          &tt,
-			}
 
 			jwr, jr, err := jiraClient.Issue.AddWorklogRecord(togglData.issueID, &worklogRecord)
 
@@ -245,6 +250,11 @@ func parseIssueID(value string) string {
 	fields := s.Fields(value)
 
 	return fields[0]
+}
+func parseIssueComment(value string) string {
+	fields := s.Fields(value)
+
+	return s.Join(fields[1:], " ")
 }
 
 func getTimeDiff(start, stop time.Time) int {
