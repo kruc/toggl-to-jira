@@ -33,6 +33,7 @@ func checkTogglToken() bool {
 	if viper.IsSet(configPath) && viper.GetString(configPath) != "FILL_IT" {
 		return true
 	}
+
 	log.Info("Generating config template for %v\n", configPath)
 	viper.Set(fmt.Sprintf("%v", configPath), "FILL_IT")
 	viper.Set(fmt.Sprintf("%v", "default_client.jira_host"), "FILL_IT")
@@ -40,6 +41,13 @@ func checkTogglToken() bool {
 	viper.Set(fmt.Sprintf("%v", "default_client.jira_username"), "FILL_IT")
 	viper.Set(fmt.Sprintf("%v", "default_client.jira_client_user"), "FILL_IT")
 	viper.Set(fmt.Sprintf("%v", "default_client.stachursky_mode"), "FILL_IT")
+	viper.Set(fmt.Sprintf("%v", "log_format"), "text")
+	viper.Set(fmt.Sprintf("%v", "log_output"), "stdout")
+	viper.Set(fmt.Sprintf("%v", "logged_tag"), "logged")
+	viper.Set(fmt.Sprintf("%v", "jiraMigrationSuccess"), "logged")
+	viper.Set(fmt.Sprintf("%v", "jiraMigrationFail"), "jira-migration-failed")
+	viper.Set(fmt.Sprintf("%v", "jiraMigrationSkip"), "jira-migration-skip")
+	viper.Set(fmt.Sprintf("%v", "period"), 1)
 
 	err := viper.WriteConfig()
 	if err != nil {
