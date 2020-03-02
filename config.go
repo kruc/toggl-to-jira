@@ -22,7 +22,7 @@ type globalConfigType struct {
 	logFormat               string
 	logOutput               string
 	jiraMigrationSuccessTag string
-	jiraMigrationFailTag    string
+	jiraMigrationFailedTag  string
 	jiraMigrationSkipTag    string
 }
 
@@ -43,10 +43,9 @@ func checkTogglToken() bool {
 	viper.Set(fmt.Sprintf("%v", "default_client.stachursky_mode"), "FILL_IT")
 	viper.Set(fmt.Sprintf("%v", "log_format"), "text")
 	viper.Set(fmt.Sprintf("%v", "log_output"), "stdout")
-	viper.Set(fmt.Sprintf("%v", "logged_tag"), "logged")
-	viper.Set(fmt.Sprintf("%v", "jiraMigrationSuccess"), "logged")
-	viper.Set(fmt.Sprintf("%v", "jiraMigrationFail"), "jira-migration-failed")
-	viper.Set(fmt.Sprintf("%v", "jiraMigrationSkip"), "jira-migration-skip")
+	viper.Set(fmt.Sprintf("%v", "jira_migration_success_tag"), "logged")
+	viper.Set(fmt.Sprintf("%v", "jira_migration_failed_tag"), "jira-migration-failed")
+	viper.Set(fmt.Sprintf("%v", "jira_migration_skip_tag"), "jira-migration-skip")
 	viper.Set(fmt.Sprintf("%v", "period"), 1)
 
 	err := viper.WriteConfig()
@@ -88,22 +87,14 @@ func generateClientConfigTemplate(configPath string) {
 func parseGlobalConfig() globalConfigType {
 	clientDefaultConfigPath := "default_client"
 
-	clientDefaultConfig := clientConfig{
-		jiraUsername:   getString("jira_username", clientDefaultConfigPath, globalConfig.defaultClient.jiraUsername),
-		jiraPassword:   getString("jira_password", clientDefaultConfigPath, globalConfig.defaultClient.jiraPassword),
-		jiraClientUser: getString("jira_client_user", clientDefaultConfigPath, globalConfig.defaultClient.jiraClientUser),
-		jiraHost:       getString("jira_host", clientDefaultConfigPath, globalConfig.defaultClient.jiraHost),
-		stachurskyMode: getInt("stachursky_mode", clientDefaultConfigPath, globalConfig.defaultClient.stachurskyMode),
-	}
-
 	globalConfig := globalConfigType{
-		defaultClient:           clientDefaultConfig,
+		defaultClient:           parseClientConfig(clientDefaultConfigPath, globalConfig),
 		period:                  viper.GetInt("period"),
 		logFormat:               viper.GetString("log_format"),
 		logOutput:               viper.GetString("log_output"),
-		jiraMigrationSuccessTag: viper.GetString("logged_tag"),
-		jiraMigrationFailTag:    viper.GetString("jira-migration-failed"),
-		jiraMigrationSkipTag:    viper.GetString("jira-migration-skip"),
+		jiraMigrationSuccessTag: viper.GetString("jira_migration_success_tag"),
+		jiraMigrationFailedTag:  viper.GetString("jira_migration_failed_tag"),
+		jiraMigrationSkipTag:    viper.GetString("jira_migration_skip_tag"),
 	}
 
 	return globalConfig

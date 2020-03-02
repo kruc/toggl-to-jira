@@ -186,11 +186,11 @@ func main() {
 					"response":      jr,
 				}).Error(err)
 
-				timeEntry.Tags = append(timeEntry.Tags, globalConfig.jiraMigrationFailTag)
-				log.Info(fmt.Sprintf("Add %v tag", globalConfig.jiraMigrationFailTag))
+				timeEntry.Tags = append(timeEntry.Tags, globalConfig.jiraMigrationFailedTag)
+				log.Info(fmt.Sprintf("Add %v tag", globalConfig.jiraMigrationFailedTag))
 			} else {
 				log.Info(fmt.Sprintf("Jira workload added"))
-				timeEntry.Tags = removeTag(timeEntry.Tags, globalConfig.jiraMigrationFailTag)
+				timeEntry.Tags = removeTag(timeEntry.Tags, globalConfig.jiraMigrationFailedTag)
 				timeEntry.Tags = append(timeEntry.Tags, globalConfig.jiraMigrationSuccessTag)
 				log.Info(fmt.Sprintf("Add %v tag", globalConfig.jiraMigrationSuccessTag))
 			}
