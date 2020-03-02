@@ -22,26 +22,18 @@ type togglData struct {
 	timeSpentSeconds int
 }
 
-type clientConfig struct {
-	jiraUsername   string
-	jiraPassword   string
-	jiraClientUser string
-	jiraHost       string
-}
-
 var (
-	period               int
-	config               = "config"
-	configPath           string
-	logFormat            string
-	logOutput            string
-	jiraMigrationSuccess string
-	logFile              *os.File
-	jiraMigrationFail    = "jira-migration-failed"
-	stachurskyMode       int
-	debugMode            bool
-	version              bool
-
+	globalConfig   globalConfigType
+	period         int
+	config         = "config"
+	configPath     string
+	logFormat      string
+	logOutput      string
+	logFile        *os.File
+	stachurskyMode int
+	debugMode      bool
+	version        bool
+	// For version info
 	BuildVersion string
 	BuildDate    string
 	GitCommit    string
@@ -49,15 +41,9 @@ var (
 )
 
 func init() {
-	flag.IntVarP(&period, "period", "p", 1, "Migrate time entries from last given days")
-	flag.StringVarP(&configPath, "config-path", "c", fmt.Sprintf("%v/.toggl-to-jira", os.Getenv("HOME")), "Config file path")
-	flag.StringVarP(&logFormat, "format", "f", "text", "Log format (text|json)")
-	flag.StringVarP(&logOutput, "output", "o", "stdout", "Log filename ")
-	flag.StringVarP(&jiraMigrationSuccess, "logged-tag", "l", "logged", "Toggl logged tag")
-	flag.IntVarP(&stachurskyMode, "tryb-niepokorny", "t", 1, "Rounding up the value of logged time up (minutes)")
 	flag.BoolVar(&debugMode, "debug", false, "Debug mode - display workload but not update jiras")
-	flag.BoolVarP(&version, "version", "v", false, "Display version")
-	flag.Parse()
+	flag.StringVarP(&configPath, "config-path", "c", fmt.Sprintf("%v/.toggl-to-jira", os.Getenv("HOME")), "Config file path")
+
 	// Prepare config
 	os.MkdirAll(configPath, 0755)
 	os.OpenFile(fmt.Sprintf("%v/%v.yaml", configPath, config), os.O_CREATE|os.O_RDWR, 0666)
@@ -68,6 +54,15 @@ func init() {
 	if err != nil {
 		panic(fmt.Errorf("Fatal error config file: %s", err))
 	}
+
+	globalConfig = parseGlobalConfig()
+
+	flag.IntVarP(&period, "period", "p", globalConfig.period, "Migrate time entries from last given days")
+	flag.StringVarP(&logFormat, "format", "f", globalConfig.logFormat, "Log format (text|json)")
+	flag.StringVarP(&logOutput, "output", "o", globalConfig.logOutput, "Log output (stdout|filename)")
+	flag.IntVarP(&stachurskyMode, "tryb-niepokorny", "t", globalConfig.defaultClient.stachurskyMode, "Rounding up the value of logged time up (minutes)")
+	flag.BoolVarP(&version, "version", "v", false, "Display version")
+	flag.Parse()
 
 	// Prepare logger
 	log.SetFormatter(&log.TextFormatter{})
@@ -82,6 +77,7 @@ func init() {
 	}
 	log.SetLevel(log.InfoLevel)
 }
+
 func main() {
 	defer logFile.Close()
 	if version {
@@ -108,7 +104,7 @@ func main() {
 	}
 
 	for _, timeEntry := range timeEntries {
-		if find(timeEntry.Tags, jiraMigrationSuccess) && !debugMode {
+		if (find(timeEntry.Tags, globalConfig.jiraMigrationSuccessTag) || find(timeEntry.Tags, globalConfig.jiraMigrationSkipTag)) && !debugMode {
 			continue
 		}
 
@@ -133,7 +129,21 @@ func main() {
 			continue
 		}
 
-		timeSpentSeconds := dosko(getTimeDiff(timeEntry.Start, timeEntry.Stop))
+		clientConfigPath := fmt.Sprintf("client.%v", s.ToLower(client.Name))
+
+		if !viper.IsSet(clientConfigPath) {
+			generateClientConfigTemplate(clientConfigPath)
+			continue
+		}
+
+		if !viper.GetBool(fmt.Sprintf("%v.%v", clientConfigPath, "enabled")) {
+			log.Warnf("Don't forget to enable client (set %v.enabled = true)", clientConfigPath)
+			continue
+		}
+
+		clientConfig := parseClientConfig(clientConfigPath, globalConfig)
+
+		timeSpentSeconds := dosko(getTimeDiff(timeEntry.Start, timeEntry.Stop), clientConfig.stachurskyMode)
 
 		togglData := togglData{
 			client:           s.ToLower(client.Name),
@@ -142,25 +152,6 @@ func main() {
 			issueComment:     parseIssueComment(timeEntry.Description),
 			started:          adjustTogglDate(timeEntry.Start),
 			timeSpentSeconds: timeSpentSeconds,
-		}
-
-		clientConfigPath := fmt.Sprintf("client.%v", togglData.client)
-
-		if !viper.IsSet(clientConfigPath) {
-			generateClientConfigTemplate(clientConfigPath)
-			continue
-		}
-
-		if viper.IsSet(fmt.Sprintf("%v.%v", clientConfigPath, "config_check")) {
-			log.Warnf("Don't forget to remove config_check field from %v configuration file", clientConfigPath)
-			continue
-		}
-
-		clientConfig := clientConfig{
-			jiraUsername:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_username")),
-			jiraPassword:   viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_password")),
-			jiraClientUser: viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_client_user")),
-			jiraHost:       viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, "jira_host")),
 		}
 
 		// JIRA PART
@@ -177,8 +168,13 @@ func main() {
 			TimeSpentSeconds: togglData.timeSpentSeconds,
 			Started:          &tt,
 		}
+		issueURL := fmt.Sprintf("%v/browse/%v", clientConfig.jiraHost, togglData.issueID)
 		if debugMode {
-			fmt.Printf("%+v\n", worklogRecord)
+			fmt.Println("\nWorkload details:")
+			fmt.Printf("Time spent: %+v\n", time.Duration(worklogRecord.TimeSpentSeconds)*time.Second)
+			fmt.Printf("Comment: %+v\n", worklogRecord.Comment)
+			fmt.Printf("Issue url: %v\n", issueURL)
+			fmt.Println("------------------------")
 		}
 		if debugMode == false {
 
@@ -189,14 +185,16 @@ func main() {
 					"worklogRecord": jwr,
 					"response":      jr,
 				}).Error(err)
-				timeEntry.Tags = append(timeEntry.Tags, jiraMigrationFail)
-				log.Info(fmt.Sprintf("Add %v tag", jiraMigrationFail))
+
+				timeEntry.Tags = append(timeEntry.Tags, globalConfig.jiraMigrationFailTag)
+				log.Info(fmt.Sprintf("Add %v tag", globalConfig.jiraMigrationFailTag))
 			} else {
 				log.Info(fmt.Sprintf("Jira workload added"))
-				timeEntry.Tags = removeTag(timeEntry.Tags, jiraMigrationFail)
-				timeEntry.Tags = append(timeEntry.Tags, jiraMigrationSuccess)
-				log.Info(fmt.Sprintf("Add %v tag", jiraMigrationSuccess))
+				timeEntry.Tags = removeTag(timeEntry.Tags, globalConfig.jiraMigrationFailTag)
+				timeEntry.Tags = append(timeEntry.Tags, globalConfig.jiraMigrationSuccessTag)
+				log.Info(fmt.Sprintf("Add %v tag", globalConfig.jiraMigrationSuccessTag))
 			}
+			log.Info(fmt.Sprintf("Issue url: %v", issueURL))
 			te, err := tec.Update(&timeEntry)
 
 			if err != nil {
@@ -209,7 +207,7 @@ func main() {
 	}
 }
 
-func dosko(timeSpentSeconds int) int {
+func dosko(timeSpentSeconds, stachurskyMode int) int {
 
 	d, err := time.ParseDuration(fmt.Sprintf("%vs", timeSpentSeconds))
 	if err != nil {
@@ -267,31 +265,6 @@ func find(a []string, x string) bool {
 			return true
 		}
 	}
-
-	return false
-}
-
-func checkTogglToken() bool {
-	log.Info("Checking configuration...")
-
-	configPath := "toggl_token"
-	if viper.IsSet(configPath) && viper.GetString(configPath) != "FILL_IT" {
-		return true
-	}
-	log.Info("Generating config template for %v\n", configPath)
-	viper.Set(fmt.Sprintf("%v", configPath), "FILL_IT")
-
-	err := viper.WriteConfig()
-	if err != nil {
-		log.WithFields(log.Fields{
-			"configPath": configPath,
-		}).Error(err)
-		return false
-	}
-
-	log.WithFields(log.Fields{
-		"configPath": configPath,
-	}).Info("Client config template created!\n")
 
 	return false
 }
