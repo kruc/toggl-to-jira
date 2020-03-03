@@ -37,7 +37,6 @@ var (
 	BuildVersion string
 	BuildDate    string
 	GitCommit    string
-	GitAuthor    string
 )
 
 func init() {
@@ -270,5 +269,5 @@ func find(a []string, x string) bool {
 }
 
 func displayVersion() {
-	fmt.Printf("BuildVersion: %s\tBuildDate: %s\tGitCommit: %s\tGitAuthor: %s\n", BuildVersion, BuildDate, GitCommit, GitAuthor)
+	fmt.Printf("BuildVersion: %s\tBuildDate: %s\tGitCommit: %s\n", BuildVersion, BuildDate, GitCommit)
 }

@@ -1,12 +1,5 @@
 version: '2'
 
-vars:
-  VERSION: 0.5.0
-  GIT_COMMIT:
-    sh: git log -n 1 --format=%h
-  GIT_AUTHOR:
-    sh: git log -n 1 --format=%an
-
 tasks:
   run:
     desc: Run code
@@ -16,19 +9,28 @@ tasks:
 
   compile:
     cmds:
-      - go build -ldflags="-X 'main.BuildVersion={{.VERSION}}' -X 'main.GitCommit={{.GIT_COMMIT}}' -X 'main.GitAuthor={{.GIT_AUTHOR}}' -X 'main.BuildDate={{now | date "2006-01-02 15:04:05"}}'" -o {{.BUILD_PATH}}
+      - goreleaser --snapshot --skip-publish --rm-dist
 
   build:
     desc: Build code
     cmds:
       - task: compile
-        vars:
-          BUILD_PATH: toggl-to-jira
+      - cp ./dist/toggl-to-jira_darwin_amd64/toggl-to-jira ./
 
   install:
     desc: Install code
     cmds:
       - task: compile
-        vars:
-          BUILD_PATH:
-            sh: echo $GOPATH/bin/toggl-to-jira
+      - cp ./dist/toggl-to-jira_darwin_amd64/toggl-to-jira $GOPATH/bin/toggl-to-jira
+
+  dry-release:
+    desc: "Build packages"
+    cmds:
+      - goreleaser --snapshot --skip-publish --rm-dist
+    silent: true
+
+  release:
+    desc: "Build packages and release"
+    cmds:
+      - goreleaser --rm-dist
+    silent: true
