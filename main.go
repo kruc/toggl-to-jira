@@ -31,7 +31,7 @@ var (
 	logOutput      string
 	logFile        *os.File
 	stachurskyMode int
-	debugMode      bool
+	applyMode      bool
 	version        bool
 	// For version info
 	BuildVersion string
@@ -40,7 +40,7 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&debugMode, "debug", false, "Debug mode - display workload but not update jiras")
+	flag.BoolVar(&applyMode, "apply", false, "Update jira tasks workloads")
 	flag.StringVarP(&configPath, "config-path", "c", fmt.Sprintf("%v/.toggl-to-jira", os.Getenv("HOME")), "Config file path")
 
 	// Prepare config
@@ -103,7 +103,7 @@ func main() {
 	}
 
 	for _, timeEntry := range timeEntries {
-		if (find(timeEntry.Tags, globalConfig.jiraMigrationSuccessTag) || find(timeEntry.Tags, globalConfig.jiraMigrationSkipTag)) && !debugMode {
+		if find(timeEntry.Tags, globalConfig.jiraMigrationSuccessTag) || find(timeEntry.Tags, globalConfig.jiraMigrationSkipTag) {
 			continue
 		}
 
@@ -168,14 +168,14 @@ func main() {
 			Started:          &tt,
 		}
 		issueURL := fmt.Sprintf("%v/browse/%v", clientConfig.jiraHost, togglData.issueID)
-		if debugMode {
+		if !applyMode {
 			fmt.Println("\nWorkload details:")
 			fmt.Printf("Time spent: %+v\n", time.Duration(worklogRecord.TimeSpentSeconds)*time.Second)
 			fmt.Printf("Comment: %+v\n", worklogRecord.Comment)
 			fmt.Printf("Issue url: %v\n", issueURL)
 			fmt.Println("------------------------")
 		}
-		if debugMode == false {
+		if applyMode == true {
 
 			jwr, jr, err := jiraClient.Issue.AddWorklogRecord(togglData.issueID, &worklogRecord)
 
@@ -220,7 +220,7 @@ func dosko(timeSpentSeconds, stachurskyMode int) int {
 		roundedValue = stachurskyFactor
 	}
 
-	if debugMode {
+	if !applyMode {
 		fmt.Printf("%s - toggl value\n", d.String())
 		fmt.Printf("%s - stachursky mode (%vm) \n", roundedValue.String(), stachurskyMode)
 	}
