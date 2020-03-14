@@ -23,16 +23,12 @@ type togglData struct {
 }
 
 var (
-	globalConfig   globalConfigType
-	period         int
-	config         = "config"
-	configPath     string
-	logFormat      string
-	logOutput      string
-	logFile        *os.File
-	stachurskyMode int
-	applyMode      bool
-	version        bool
+	globalConfig globalConfigType
+	config       = "config"
+	configPath   string
+	logFile      *os.File
+	applyMode    bool
+	version      bool
 	// For version info
 	BuildVersion string
 	BuildDate    string
@@ -40,51 +36,29 @@ var (
 )
 
 func init() {
-	flag.BoolVar(&applyMode, "apply", false, "Update jira tasks workloads")
-	flag.StringVarP(&configPath, "config-path", "c", fmt.Sprintf("%v/.toggl-to-jira", os.Getenv("HOME")), "Config file path")
 
-	// Prepare config
-	os.MkdirAll(configPath, 0755)
-	os.OpenFile(fmt.Sprintf("%v/%v.yaml", configPath, config), os.O_CREATE|os.O_RDWR, 0666)
-
-	viper.SetConfigName(config)
-	viper.AddConfigPath(configPath)
-	err := viper.ReadInConfig()
-	if err != nil {
-		panic(fmt.Errorf("Fatal error config file: %s", err))
+	if !checkConfiguration() {
+		os.Exit(1)
 	}
 
 	globalConfig = parseGlobalConfig()
 
-	flag.IntVarP(&period, "period", "p", globalConfig.period, "Migrate time entries from last given days")
-	flag.StringVarP(&logFormat, "format", "f", globalConfig.logFormat, "Log format (text|json)")
-	flag.StringVarP(&logOutput, "output", "o", globalConfig.logOutput, "Log output (stdout|filename)")
-	flag.IntVarP(&stachurskyMode, "tryb-niepokorny", "t", globalConfig.defaultClient.stachurskyMode, "Rounding up the value of logged time up (minutes)")
+	flag.BoolVar(&applyMode, "apply", false, "Update jira tasks workloads")
+	flag.IntVarP(&globalConfig.period, "period", "p", globalConfig.period, "Migrate time entries from last given days")
+	flag.StringVarP(&globalConfig.logFormat, "format", "f", globalConfig.logFormat, "Log format (text|json)")
+	flag.StringVarP(&globalConfig.logOutput, "output", "o", globalConfig.logOutput, "Log output (stdout|filename)")
+	flag.IntVarP(&globalConfig.defaultClient.stachurskyMode, "tryb-niepokorny", "t", globalConfig.defaultClient.stachurskyMode, "Rounding up the value of logged time up (minutes)")
 	flag.BoolVarP(&version, "version", "v", false, "Display version")
 	flag.Parse()
 
 	// Prepare logger
-	log.SetFormatter(&log.TextFormatter{})
-	if logFormat == "json" {
-		log.SetFormatter(&log.JSONFormatter{})
-	}
-
-	log.SetOutput(os.Stdout)
-	if logOutput != "stdout" {
-		logFile, _ := os.OpenFile(logOutput, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0666)
-		log.SetOutput(logFile)
-	}
-	log.SetLevel(log.InfoLevel)
+	configureLogger()
 }
 
 func main() {
 	defer logFile.Close()
 	if version {
 		displayVersion()
-		return
-	}
-	if !checkTogglToken() {
-		log.Error("Please provide valid toggl_token visit => https://www.toggl.com/app/profile")
 		return
 	}
 
@@ -94,7 +68,7 @@ func main() {
 	pc := tc.ProjectClient
 
 	current := time.Now()
-	start := current.Add(time.Hour * 24 * time.Duration(period) * -1)
+	start := current.Add(time.Hour * 24 * time.Duration(globalConfig.period) * -1)
 
 	timeEntries, err := tec.GetRange(start, current)
 	if err != nil {

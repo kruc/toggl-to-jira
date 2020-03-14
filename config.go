@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	log "github.com/sirupsen/logrus"
 	flag "github.com/spf13/pflag"
@@ -26,29 +27,49 @@ type globalConfigType struct {
 	jiraMigrationSkipTag    string
 }
 
-func checkTogglToken() bool {
-	log.Info("Checking configuration...")
+func checkConfiguration() bool {
 
-	configPath := "toggl_token"
-	if viper.IsSet(configPath) && viper.GetString(configPath) != "FILL_IT" {
-		return true
+	configPath = fmt.Sprintf("%v/.toggl-to-jira", os.Getenv("HOME"))
+	os.MkdirAll(configPath, 0755)
+	os.OpenFile(fmt.Sprintf("%v/%v.yaml", configPath, config), os.O_CREATE|os.O_RDWR, 0666)
+
+	viper.SetConfigName(config)
+	viper.AddConfigPath(configPath)
+	err := viper.ReadInConfig()
+	if err != nil {
+		panic(fmt.Errorf("Fatal error config file: %s", err))
 	}
 
-	log.Info("Generating config template for %v\n", configPath)
-	viper.Set(fmt.Sprintf("%v", configPath), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v", "default_client.jira_host"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v", "default_client.jira_password"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v", "default_client.jira_username"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v", "default_client.jira_client_user"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v", "default_client.stachursky_mode"), "FILL_IT")
-	viper.Set(fmt.Sprintf("%v", "log_format"), "text")
-	viper.Set(fmt.Sprintf("%v", "log_output"), "stdout")
-	viper.Set(fmt.Sprintf("%v", "jira_migration_success_tag"), "logged")
-	viper.Set(fmt.Sprintf("%v", "jira_migration_failed_tag"), "jira-migration-failed")
-	viper.Set(fmt.Sprintf("%v", "jira_migration_skip_tag"), "jira-migration-skip")
-	viper.Set(fmt.Sprintf("%v", "period"), 1)
+	globalConfigKeys := []globalConfigKey{
+		jiraHostConfig("default_client"),
+		jiraPasswordConfig("default_client"),
+		jiraUsernameConfig("default_client"),
+		jiraClientUserConfig("default_client"),
+		stachurskyModeConfig("default_client"),
+		logFormatConfig(),
+		logOutputConfig(),
+		jiraMigrationSuccessTagConfig(),
+		jiraMigrationFailedTagConfig(),
+		jiraMigrationSkipTagConfig(),
+		periodConfig(),
+		togglTokenConfig(),
+	}
 
-	err := viper.WriteConfig()
+	configReady := true
+	log.Info("Checking configuration...")
+	for _, configKey := range globalConfigKeys {
+		if !viper.IsSet(configKey.fullName()) {
+			log.Warnf("Missing key: %v - config updated!\n", configKey.name)
+			viper.Set(fmt.Sprintf("%v", configKey.fullName()), configKey.defaultValue)
+			configReady = false
+		} else if configKey.requiresChange && viper.GetString(configKey.fullName()) == configKey.defaultValue {
+
+			log.Errorf("Invalid value for %v - change it", configKey.fullName())
+			configReady = false
+		}
+	}
+
+	err = viper.WriteConfig()
 	if err != nil {
 		log.WithFields(log.Fields{
 			"configPath": configPath,
@@ -56,20 +77,18 @@ func checkTogglToken() bool {
 		return false
 	}
 
-	log.WithFields(log.Fields{
-		"configPath": configPath,
-	}).Info("Client config template created!\n")
+	log.Infof("Customize configuration in file: %v/config.yaml\n", configPath)
 
-	return false
+	return configReady
 }
 
 func generateClientConfigTemplate(configPath string) {
 	fmt.Printf("Generating config template for %v...\n", configPath)
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_username"), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_password"), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_client_user"), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "jira_host"), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
-	viper.Set(fmt.Sprintf("%v.%v", configPath, "stachursky_mode"), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
+	viper.Set(jiraUsernameConfig(configPath).fullName(), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
+	viper.Set(jiraPasswordConfig(configPath).fullName(), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
+	viper.Set(jiraClientUserConfig(configPath).fullName(), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
+	viper.Set(jiraHostConfig(configPath).fullName(), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
+	viper.Set(stachurskyModeConfig(configPath).fullName(), "FILL_IT OR REMOVE TO USE DEFAULT_CLIENT")
 	viper.Set(fmt.Sprintf("%v.%v", configPath, "enabled"), false)
 	err := viper.WriteConfig()
 
@@ -89,12 +108,12 @@ func parseGlobalConfig() globalConfigType {
 
 	globalConfig := globalConfigType{
 		defaultClient:           parseClientConfig(clientDefaultConfigPath, globalConfig),
-		period:                  viper.GetInt("period"),
-		logFormat:               viper.GetString("log_format"),
-		logOutput:               viper.GetString("log_output"),
-		jiraMigrationSuccessTag: viper.GetString("jira_migration_success_tag"),
-		jiraMigrationFailedTag:  viper.GetString("jira_migration_failed_tag"),
-		jiraMigrationSkipTag:    viper.GetString("jira_migration_skip_tag"),
+		period:                  viper.GetInt(periodConfig().name),
+		logFormat:               viper.GetString(logFormatConfig().name),
+		logOutput:               viper.GetString(logOutputConfig().name),
+		jiraMigrationSuccessTag: viper.GetString(jiraMigrationSuccessTagConfig().name),
+		jiraMigrationFailedTag:  viper.GetString(jiraMigrationFailedTagConfig().name),
+		jiraMigrationSkipTag:    viper.GetString(jiraMigrationSkipTagConfig().name),
 	}
 
 	return globalConfig
@@ -103,31 +122,31 @@ func parseGlobalConfig() globalConfigType {
 func parseClientConfig(clientConfigPath string, globalConfig globalConfigType) clientConfig {
 
 	clientConfig := clientConfig{
-		jiraUsername:   getString("jira_username", clientConfigPath, globalConfig.defaultClient.jiraUsername),
-		jiraPassword:   getString("jira_password", clientConfigPath, globalConfig.defaultClient.jiraPassword),
-		jiraClientUser: getString("jira_client_user", clientConfigPath, globalConfig.defaultClient.jiraClientUser),
-		jiraHost:       getString("jira_host", clientConfigPath, globalConfig.defaultClient.jiraHost),
-		stachurskyMode: getInt("stachursky_mode", clientConfigPath, globalConfig.defaultClient.stachurskyMode),
+		jiraUsername:   getString(jiraUsernameConfig(clientConfigPath).fullName(), globalConfig.defaultClient.jiraUsername),
+		jiraPassword:   getString(jiraPasswordConfig(clientConfigPath).fullName(), globalConfig.defaultClient.jiraPassword),
+		jiraClientUser: getString(jiraClientUserConfig(clientConfigPath).fullName(), globalConfig.defaultClient.jiraClientUser),
+		jiraHost:       getString(jiraHostConfig(clientConfigPath).fullName(), globalConfig.defaultClient.jiraHost),
+		stachurskyMode: getInt(stachurskyModeConfig(clientConfigPath).fullName(), globalConfig.defaultClient.stachurskyMode),
 	}
 
 	if flag.CommandLine.Changed("tryb-niepokorny") {
-		clientConfig.stachurskyMode = stachurskyMode
+		clientConfig.stachurskyMode = globalConfig.defaultClient.stachurskyMode
 	}
 
 	return clientConfig
 }
 
-func getString(key, clientConfigPath, defaultValue string) string {
-	if viper.IsSet(fmt.Sprintf("%v.%v", clientConfigPath, key)) {
-		return viper.GetString(fmt.Sprintf("%v.%v", clientConfigPath, key))
+func getString(key, defaultValue string) string {
+	if viper.IsSet(key) {
+		return viper.GetString(key)
 	}
 
 	return defaultValue
 }
 
-func getInt(key, clientConfigPath string, defaultValue int) int {
-	if viper.IsSet(fmt.Sprintf("%v.%v", clientConfigPath, key)) {
-		return viper.GetInt(fmt.Sprintf("%v.%v", clientConfigPath, key))
+func getInt(key string, defaultValue int) int {
+	if viper.IsSet(key) {
+		return viper.GetInt(key)
 	}
 
 	return defaultValue
